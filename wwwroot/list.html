@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Files</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #fileList { margin-top: 20px; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h2>File Listing</h2>
+
+    <div id="fileList"></div>
+    
+    <script>
+        async function fetchFiles() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const folder = urlParams.get('folder'); 
+
+            if (!folder) {
+                document.getElementById('fileList').textContent = 'Folder parameter is missing.';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/listing?folder=${encodeURIComponent(folder)}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.status === 401) {
+                    document.getElementById('fileList').textContent = 'Unauthorized access. Please log in.';
+                } else if (response.ok) {
+                    const files = await response.text();
+                    const fileArray = files.split(', ');
+
+                    if (fileArray.length > 0 && fileArray[0] !== "") {
+                        document.getElementById('fileList').innerHTML = `<p>Files in "${folder}":</p><ul>` + 
+                            fileArray.map(file => `<li>${file}</li>`).join('') + 
+                            `</ul>`;
+                    } else {
+                        document.getElementById('fileList').textContent = `No files found in "${folder}".`;
+                    }
+                } else {
+                    document.getElementById('fileList').textContent = 'An error occurred while fetching files.';
+                }
+            } catch (error) {
+                document.getElementById('fileList').textContent = 'Error: Unable to fetch files.';
+            }
+        }
+        fetchFiles();
+    </script>
+</body>
+</html>
