@@ -1,64 +1,62 @@
+using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+builder.Services.AddMvc(options =>
+{
+    options.Filters.Remove(new AutoValidateAntiforgeryTokenAttribute());
+});
 var app = builder.Build();
 
-app.MapGet("/", () => "Hello World!");
+app.UseStaticFiles();
+app.UseDefaultFiles();
 
-app.MapGet("/listing", (string folder) =>
-{
-    var files = Directory.GetFiles($"./{folder}");
-    return string.Join(", ", files);
-});
+app.MapGet("/", () => 
+    Results.Content(
+        "<html><body>Hello! <a href='/login.html'>Go to Login</a></body></html>", 
+        "text/html"
+    )
+);
 
-app.MapPost("/login", (HttpContext context, string username, string password) =>
+app.MapGet("/listing", (HttpContext context, string folder) =>
 {
-    if (username == "admin" && password == "admin")
+    if (!context.Request.Cookies.TryGetValue("AuthCookie", out var authCookie) || authCookie != "authenticated")
     {
-        context.Response.Cookies.Append("AuthCookie", "authenticated", new CookieOptions
-        {
-            HttpOnly = true, 
-            Secure = true,   
-            SameSite = SameSiteMode.Strict, 
-            Expires = DateTimeOffset.UtcNow.AddHours(1)
-        });
-
-        return "Login successful!";
+        return Results.Unauthorized();
     }
 
-    return "Invalid credentials!";
+    var files = Directory.GetFiles($"./{folder}");
+    return Results.Ok(string.Join(", ", files));
 });
 
-app.MapGet("/find", async (IConfiguration config, string login) =>
+app.MapPost("/login", async (HttpContext context, [FromBody] LoginRequest login, IConfiguration config) =>
 {
-    var client = new MongoDB.Driver.MongoClient(config.GetConnectionString("CS"));
+    var client = new MongoClient(config.GetConnectionString("CS"));
     var database = client.GetDatabase("Bit");
     var collection = database.GetCollection<BsonDocument>("Users");
 
-    var filter = Builders<BsonDocument>.Filter.Eq("login", login);
+    var filterJson = $"{{ 'login': '{login.Username}', 'password': '{login.Password}' }}";
+    var filter = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonDocument>(filterJson);
+
     var result = await collection.Find(filter).FirstOrDefaultAsync();
 
-    if (result == null)
+    if (result != null)
     {
-        return Results.NotFound();
-    }
-
-    var response = new Dictionary<string, object>
-    {
-        ["_id"] = result["_id"].AsObjectId.ToString()
-    };
-
-    foreach (var element in result.Elements)
-    {
-        if (element.Name != "_id")
+        context.Response.Cookies.Append("AuthCookie", "authenticated", new CookieOptions
         {
-            response[element.Name] = element.Value.ToString();
-        }
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTimeOffset.UtcNow.AddHours(1)
+        });
+
+        return Results.Ok("Login successful!");
     }
 
-    return Results.Ok(response);
+    return Results.Unauthorized();
 });
 
 app.Run();
+
